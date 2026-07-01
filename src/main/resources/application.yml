@@ -8,6 +8,20 @@ spring:
     password: 4622
     driver-class-name: org.mariadb.jdbc.Driver
 
+  spring:
+    mail:
+      host: smtp.gmail.com
+      port: 587
+      username: dddddddd
+      password: *******************
+      properties:
+        mail:
+          smtp:
+            auth: true
+            starttls:
+              enable: true
+              required: true
+
   jpa:
     hibernate:
       # 엔티티 구조와 DB 테이블을 자동으로 동기화 (개발 환경용)
@@ -21,3 +35,14 @@ spring:
 server:
   # 애플리케이션 구동 포트 번호
   port: 8080
+
+# --- AI 연동 설정 (추후 실제 발급받은 키로 교체) ---
+ai:
+  gemini:
+    # 제미나이 API 기본 주소 (Gemini 1.5 Flash 모델 기준)
+    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    key: "YOUR_GEMINI_API_KEY"
+  chatgpt:
+    # 챗지피티 API 기본 주소
+    url: "https://api.openai.com/v1/chat/completions"
+    key: "YOUR_CHATGPT_API_KEY"
