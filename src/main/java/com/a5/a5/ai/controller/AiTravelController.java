@@ -17,6 +17,7 @@ public class AiTravelController {
     // 앱에서 여행 계획을 요청받는 주소: /api/ai/plan
     @PostMapping("/plan")
     public String getTravelPlan(@RequestBody TravelRequestDto request) {
-        return aiTravelService.generateTravelPlanWithGemini(request);
+        // 서비스의 변경된 메서드 이름으로 호출
+        return aiTravelService.generateTravelPlan(request);
     }
 }
