@@ -12,8 +12,8 @@ spring:
     mail:
       host: smtp.gmail.com
       port: 587
-      username: dddddddd
-      password: *******************
+      username: vhghen7@gmail.com
+      password: yocetvhdnndpcoho
       properties:
         mail:
           smtp:
@@ -21,6 +21,9 @@ spring:
             starttls:
               enable: true
               required: true
+            connectiontimeout: 5000
+            timeout: 5000
+            writetimeout: 5000
 
   jpa:
     hibernate:
@@ -39,10 +42,25 @@ server:
 # --- AI 연동 설정 (추후 실제 발급받은 키로 교체) ---
 ai:
   gemini:
-    # 제미나이 API 기본 주소 (Gemini 1.5 Flash 모델 기준)
-    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-    key: "YOUR_GEMINI_API_KEY"
+    # 제미나이 API 기본 주소 (Gemini 2.5 Flash 모델 기준, 무료버전 사용 중 하루 20회 호출 가능)
+    url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+    key: ${GOOGLE_API_KEY}
   chatgpt:
     # 챗지피티 API 기본 주소
     url: "https://api.openai.com/v1/chat/completions"
     key: "YOUR_CHATGPT_API_KEY"
+# AI API Mock Mode Switch (true: 가짜 데이터 사용, false: 실제 API 호출)
+  api:
+    mock: true
+
+#navitime은 Rapid api 무료 버전을 사용하고 있습니다. 추후 b2b 서비스가 될 경우 정식 키로 변경하시면 됩니다.
+navitime:
+  api:
+    key: ${navitime_API_KEY}
+
+# google maps api 키입니다. 현재 이준희의 키로 되어있으며 추후 학교에서 api 키를 발급 받을 경우 변경
+google:
+  maps:
+    key: ${GOOGLE_Maps_API_KEY}
+
+debug: true
