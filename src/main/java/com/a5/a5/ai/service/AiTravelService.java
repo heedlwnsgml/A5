@@ -42,20 +42,20 @@ public class AiTravelService {
         }
 
         try {
-            // 1. AI API 호출 및 생성 시도
+            // AI 호출
             String result = "GEMINI".equals(activeModel) ? callGemini(request) : callChatGPT(request);
 
-            // 2. 생성 성공 시 DB 저장
+            // DB 저장
             savePlanToDb(request.getDestination(), result);
             return result;
         } catch (Exception e) {
             System.err.println(activeModel + " 호출 실패, DB 조회 시도: " + e.getMessage());
 
-            // 3. 실패 시 DB에서 폴백 데이터 조회
+            // 실패 시 DB 조회
             return repository.findFirstByDestination(request.getDestination())
                     .map(TravelPlan::getPlanContent)
                     .orElseThrow(() -> {
-                        // 4. DB에도 없으면 장애 처리 및 모델 전환
+                        // 데이터 부재 시 장애 처리
                         handleFailure();
                         switchModel();
                         return new AiException("AI 생성 실패 및 DB 데이터 없음: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
@@ -64,16 +64,29 @@ public class AiTravelService {
     }
 
     private String callGemini(TravelRequestDto request) {
-        /* [실제 운영 로직] */
-        String prompt = String.format("%s으로 %d일간 %s 여행을 계획해줘.", request.getDestination(), request.getDurationDays(), request.getTheme());
+        // 프롬프트 제약 조건 설정 (이모지 금지, 말투 지정)
+        String systemInstruction = "너는 여행 계획 전문가야. 답변할 때 다음 규칙을 반드시 지켜:" +
+                "1. 이모지를 절대 사용하지 마." +
+                "2. 전문적이고 간결한 말투를 유지해." +
+                "3. 답변은 한국어로 작성해." +
+                "4. **을 절대 사용하재 마"+
+                "5. destination을 비슷하거나 추측되는 지역으로 변경하지 마"+
+                "6. destination이 주소를 가르키거나 확실한 지역명이 아니라면 재입력 요청을 해"+
+                "7. destination이 도로명 주소로 입력될 경우에는 지번 주소로 변경해";
 
-        // Gemini API v1beta 요청 구조
+        String prompt = String.format("%s으로 %d일간 %s 여행 계획을 짜줘.",
+                request.getDestination(), request.getDurationDays(), request.getTheme());
+
+        // 제약 조건과 프롬프트 결합
+        String combinedPrompt = systemInstruction + "\n\n질문: " + prompt;
+
+        // API 요청 객체 생성
         Map<String, Object> body = Map.of(
-            "contents", new Object[]{
-                Map.of("parts", new Object[]{
-                    Map.of("text", prompt)
-                })
-            }
+                "contents", new Object[]{
+                        Map.of("parts", new Object[]{
+                                Map.of("text", combinedPrompt)
+                        })
+                }
         );
 
         return restClient.post()
@@ -82,17 +95,11 @@ public class AiTravelService {
                 .body(body)
                 .retrieve()
                 .body(String.class);
-
-        /* [테스트용 코드 - 주석 해제 시 사용] */
-        // throw new RuntimeException("Gemini API 장애 발생(테스트)");
     }
 
     private String callChatGPT(TravelRequestDto request) {
-        /* [실제 운영 로직]
-        return restClient.post().uri(chatgptUrl).body(request).retrieve().body(String.class);
-
-       [테스트용 코드 - 주석 해제 시 사용] */
-         throw new RuntimeException("ChatGPT API 장애 발생(테스트)");
+        // ChatGPT API 장애 발생 테스트용
+        throw new RuntimeException("ChatGPT API 장애 발생(테스트)");
     }
 
     private void savePlanToDb(String destination, String content) {

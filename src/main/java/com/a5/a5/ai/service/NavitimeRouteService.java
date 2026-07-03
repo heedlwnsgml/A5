@@ -4,87 +4,118 @@ import com.a5.a5.ai.dto.RouteInfoDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @Service
-public class GoogleRouteService {
+public class NavitimeRouteService {
 
-    @Value("${google.maps.key}")
-    private String googleMapsKey;
+    @Value("${navitime.api.key}")
+    private String navitimeApiKey;
 
-    private final RestClient restClient;
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    // RestClient, ObjectMapper 초기화
-    public GoogleRouteService(RestClient.Builder restClientBuilder) {
-        this.restClient = restClientBuilder.build();
+    // 객체 초기화
+    public NavitimeRouteService() {
+        this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
     }
 
-    // Directions API를 활용한 경로 정보 반환
-    public RouteInfoDto getRouteInfo(double originLat, double originLng, double destLat, double destLng, String travelMode) {
-        // 구글 Directions API 엔드포인트
-        String url = "https://maps.googleapis.com/maps/api/directions/json";
-
-        // Directions API 규격에 맞게 이동 수단 문자열 변환
-        String mode = travelMode.toLowerCase();
-        if (mode.equals("drive")) mode = "driving";
-        if (mode.equals("walk")) mode = "walking";
-
-        // GET 요청 URL 조합
-        String requestUrl = url + "?origin=" + originLat + "," + originLng +
-                "&destination=" + destLat + "," + destLng +
-                "&mode=" + mode +
-                "&key=" + googleMapsKey;
-
-        // 대중교통 이용 시 실시간 배차 조회를 위해 departure_time=now 필수 추가
-        if ("transit".equals(mode)) {
-            requestUrl += "&departure_time=now";
-        }
+    public RouteInfoDto getRouteInfo(double startLat, double startLng, double goalLat, double goalLng) {
+        String startTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+        String url = String.format(
+                "https://navitime-route-totalnavi.p.rapidapi.com/route_transit?" +
+                        "start=%f,%f&goal=%f,%f&start_time=%s&limit=1&datum=wgs84",
+                startLat, startLng, goalLat, goalLng, startTime
+        );
 
         try {
-            // API GET 호출
-            String response = restClient.get()
-                    .uri(requestUrl)
-                    .retrieve()
-                    .body(String.class);
+            // 헤더 정보 세팅
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("x-rapidapi-host", "navitime-route-totalnavi.p.rapidapi.com");
+            headers.set("x-rapidapi-key", navitimeApiKey);
 
-            JsonNode rootNode = objectMapper.readTree(response);
-            String status = rootNode.path("status").asText();
+            HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            System.out.println("Directions API 응답 상태: " + status);
+            // API 호출 및 응답 수신
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    String.class
+            );
 
-            // 정상적으로 경로를 찾은 경우
-            if ("OK".equals(status)) {
-                JsonNode firstRoute = rootNode.path("routes").get(0);
-                JsonNode firstLeg = firstRoute.path("legs").get(0);
+            String responseBody = response.getBody();
+            System.out.println("Navitime API Raw Response: " + responseBody);
 
-                RouteInfoDto dto = new RouteInfoDto();
+            JsonNode rootNode = objectMapper.readTree(responseBody);
+            RouteInfoDto dto = new RouteInfoDto();
 
-                // Directions API의 JSON 구조(legs 배열 내부)에서 거리와 시간 추출
-                dto.setDistanceMeters(firstLeg.path("distance").path("value").asInt());
-                // Routes API와 동일한 포맷("초s")을 유지하기 위해 's' 문자열 추가
-                dto.setDuration(firstLeg.path("duration").path("value").asText() + "s");
+            JsonNode itemsNode = rootNode.path("items");
+            if (itemsNode.isArray() && !itemsNode.isEmpty()) {
+                JsonNode firstRoute = itemsNode.get(0);
+                JsonNode summaryNode = firstRoute.path("summary");
+                JsonNode moveNode = summaryNode.path("move");
 
-                return dto;
-            } else {
-                // 구글이 경로를 찾지 못했거나 권한 문제 발생 시 로그 출력
-                System.err.println("경로 검색 실패. 구글 API 상태 코드: " + status);
-                System.err.println("응답 상세 내용: " + response);
+                dto.setTotalTime(moveNode.path("time").asInt());
+
+                JsonNode referenceFareNode = moveNode.path("reference_fare");
+                if (!referenceFareNode.isMissingNode()) {
+                    dto.setTicketFare(referenceFareNode.path("lowest_total_ticket").asInt(0));
+                    dto.setIcCardFare(referenceFareNode.path("lowest_total_ic").asInt(0));
+                }
+
+                List<String> pathDetails = new ArrayList<>();
+                Set<String> operators = new HashSet<>();
+
+                JsonNode sectionsNode = firstRoute.path("sections");
+                if (sectionsNode.isArray()) {
+                    for (JsonNode section : sectionsNode) {
+                        String type = section.path("type").asText();
+
+                        if ("move".equals(type)) {
+                            String moveType = section.path("move").asText();
+
+                            if (!"walk".equals(moveType)) {
+                                JsonNode transportNode = section.path("transport");
+
+                                if (!transportNode.isMissingNode()) {
+                                    String lineName = transportNode.path("name").asText();
+                                    int segmentTime = section.path("time").asInt(0);
+
+                                    pathDetails.add(lineName + " (" + segmentTime + "분)");
+
+                                    JsonNode companyNode = transportNode.path("company");
+                                    if (!companyNode.isMissingNode() && companyNode.has("name")) {
+                                        operators.add(companyNode.path("name").asText());
+                                    } else {
+                                        operators.add(lineName);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                dto.setPathDetails(pathDetails);
+                dto.setOperators(operators);
             }
+            return dto;
 
-        } catch (HttpClientErrorException e) {
-            // 4xx, 5xx HTTP 통신 에러 로깅
-            System.err.println("Directions API HTTP 에러 상태 코드: " + e.getStatusCode());
-            System.err.println("Directions API HTTP 에러 상세 내역: " + e.getResponseBodyAsString());
         } catch (Exception e) {
-            // 코드 내부 파싱 에러 등 알 수 없는 예외 로깅
-            System.err.println("Directions API 처리 중 알 수 없는 예외 발생: " + e.getMessage());
             e.printStackTrace();
         }
-
         return null;
     }
 }
