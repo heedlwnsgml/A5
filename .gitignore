@@ -35,3 +35,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# 보안 민감 파일 Git 추적 제외 (상대 경로 적용)
+src/main/resources/application.yml
