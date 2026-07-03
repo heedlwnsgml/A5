@@ -6,12 +6,13 @@ spring:
     password: 4622
     driver-class-name: org.mariadb.jdbc.Driver
 
-  #  중복 선언된 spring 계층을 제거하고 올바른 위치로 수정
+  #  중복 선언된 spring 계층을 제거하고 올바른 위치로 수정 -- 현재 구글 메일 안 보내짐 추후 다른 메일이나 다른 방식 고밍(로그랑 메시지는 나옴)
   mail:
     host: smtp.gmail.com
     port: 587
-    username: vhghen7@gmail.com
-    password: yocetvhdnndpcoho
+    username: ${"메일주소"}
+    password: ${"메일비번"}
+    
     properties:
       mail:
         smtp:
@@ -39,7 +40,7 @@ server:
 ai:
   gemini:
     url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
-    key: AQ.Ab8RN6KKQhXUd2y8cOHXVqWDt-bWAU0idEntgE_GUtJrtf-ndQ
+    key: ${"제미나이 키"}
   chatgpt:
     url: "https://api.openai.com/v1/chat/completions"
     key: "YOUR_CHATGPT_API_KEY"
@@ -49,12 +50,12 @@ ai:
 #  Navitime API 설정 (RapidAPI)
 navitime:
   api:
-    key: aba13a7f93msh7c194ffc8ba7442p1b8958jsn315d05d8453e
+    key: ${"navitime 키"}
 
 #  Google Maps API 설정
 google:
   maps:
-    key: AIzaSyDYCttYiypFIt9-UwEraeOD6MgwOQK_0OQ
+    key: ${"Google Maps API 키"}
 
 #  디버그 모드 활성화
 debug: true
