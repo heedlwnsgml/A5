@@ -4,16 +4,16 @@ import java.util.List;
 import java.util.Set;
 
 public class RouteInfoDto {
-    // 간결한 주석: 소요 시간 및 기본 요금
+    // 간결한 주석: 총 소요 시간 및 전체 합산 요금
     private int totalTime;
     private int ticketFare;
     private int icCardFare;
 
-    // 간결한 주석: 경로 상의 모든 운영 철도회사/노선명 집합
+    // 간결한 주석: 구간별 개별 요금 리스트 추가
+    private List<RouteSegmentDto> segments;
     private Set<String> operators;
     private List<String> pathDetails;
 
-    // 간결한 주석: 패스권 비교 후 도출된 최종 최적 요금 및 추천 메시지
     private int optimalFare;
     private String recommendedPassName;
     private String optimizationMessage;
@@ -29,6 +29,9 @@ public class RouteInfoDto {
 
     public int getIcCardFare() { return icCardFare; }
     public void setIcCardFare(int icCardFare) { this.icCardFare = icCardFare; }
+
+    public List<RouteSegmentDto> getSegments() { return segments; }
+    public void setSegments(List<RouteSegmentDto> segments) { this.segments = segments; }
 
     public Set<String> getOperators() { return operators; }
     public void setOperators(Set<String> operators) { this.operators = operators; }

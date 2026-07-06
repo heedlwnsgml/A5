@@ -1,6 +1,7 @@
 package com.a5.a5.ai.service;
 
 import com.a5.a5.ai.dto.RouteInfoDto;
+import com.a5.a5.ai.dto.RouteSegmentDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,9 +28,9 @@ public class NavitimeRouteService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    // 객체 초기화
-    public NavitimeRouteService() {
-        this.restTemplate = new RestTemplate();
+    // AppConfig에 등록된 RestTemplate 빈을 주입받아 사용
+    public NavitimeRouteService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -42,25 +43,14 @@ public class NavitimeRouteService {
         );
 
         try {
-            // 헤더 정보 세팅
             HttpHeaders headers = new HttpHeaders();
             headers.set("x-rapidapi-host", "navitime-route-totalnavi.p.rapidapi.com");
             headers.set("x-rapidapi-key", navitimeApiKey);
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            // API 호출 및 응답 수신
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    entity,
-                    String.class
-            );
-
-            String responseBody = response.getBody();
-            System.out.println("Navitime API Raw Response: " + responseBody);
-
-            JsonNode rootNode = objectMapper.readTree(responseBody);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            JsonNode rootNode = objectMapper.readTree(response.getBody());
             RouteInfoDto dto = new RouteInfoDto();
 
             JsonNode itemsNode = rootNode.path("items");
@@ -79,6 +69,7 @@ public class NavitimeRouteService {
 
                 List<String> pathDetails = new ArrayList<>();
                 Set<String> operators = new HashSet<>();
+                List<RouteSegmentDto> segments = new ArrayList<>();
 
                 JsonNode sectionsNode = firstRoute.path("sections");
                 if (sectionsNode.isArray()) {
@@ -92,27 +83,38 @@ public class NavitimeRouteService {
                                 JsonNode transportNode = section.path("transport");
 
                                 if (!transportNode.isMissingNode()) {
+                                    RouteSegmentDto segmentDto = new RouteSegmentDto();
+
                                     String lineName = transportNode.path("name").asText();
                                     int segmentTime = section.path("time").asInt(0);
 
-                                    pathDetails.add(lineName + " (" + segmentTime + "분)");
+                                    JsonNode fareNode = transportNode.path("fare");
+                                    int fare = fareNode.isMissingNode() ? 0 : fareNode.path("fare").asInt(0);
 
+                                    String operatorName = lineName;
                                     JsonNode companyNode = transportNode.path("company");
                                     if (!companyNode.isMissingNode() && companyNode.has("name")) {
-                                        operators.add(companyNode.path("name").asText());
-                                    } else {
-                                        operators.add(lineName);
+                                        operatorName = companyNode.path("name").asText();
                                     }
+
+                                    segmentDto.setLineName(lineName);
+                                    segmentDto.setOperator(operatorName);
+                                    segmentDto.setTimeMinutes(segmentTime);
+                                    segmentDto.setSegmentFare(fare);
+                                    segments.add(segmentDto);
+
+                                    pathDetails.add(lineName + " (" + segmentTime + "분, " + fare + "엔)");
+                                    operators.add(operatorName);
                                 }
                             }
                         }
                     }
                 }
+                dto.setSegments(segments);
                 dto.setPathDetails(pathDetails);
                 dto.setOperators(operators);
             }
             return dto;
-
         } catch (Exception e) {
             e.printStackTrace();
         }
