@@ -18,15 +18,17 @@ public class TravelPlan {
     @Column(nullable = false)
     private String destination;
 
-    // AI가 생성한 긴 내용을 담기 위해 TEXT 타입으로 설정
-    @Column(name = "plan_content", columnDefinition = "TEXT", nullable = false)
+    // AI 결과값이 없을 수 있으므로 nullable 허용으로 변경
+    @Column(name = "plan_content", columnDefinition = "TEXT")
     private String planContent;
 
-    // 데이터 생성 시간 필드 추가
+    // 진행 상태 관리를 위한 필드 추가
+    @Column(nullable = false)
+    private String status;
+
     @Column(name = "created_date")
     private LocalDateTime createdDate;
 
-    // 엔티티가 저장되기 직전에 현재 시간 설정
     @PrePersist
     protected void onCreate() {
         this.createdDate = LocalDateTime.now();
