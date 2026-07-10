@@ -2,6 +2,7 @@ package com.a5.a5.ai.service;
 
 import com.a5.a5.ai.dto.AiRouteResponseDto;
 import com.a5.a5.ai.dto.PlaceLocationDto;
+import com.a5.a5.ai.dto.PlanStatusResponseDto;
 import com.a5.a5.ai.dto.RouteInfoDto;
 import com.a5.a5.ai.dto.TravelRequestDto;
 import com.a5.a5.ai.entity.TravelPlan;
@@ -12,8 +13,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
@@ -37,7 +38,6 @@ public class AiTravelService {
     private static final int MAX_FAILURE_LIMIT = 5;
     private String activeModel = "GEMINI";
 
-    // 생성자 의존성 주입
     public AiTravelService(RestClient.Builder restClientBuilder,
                            TravelPlanRepository repository,
                            EmailService emailService,
@@ -51,12 +51,22 @@ public class AiTravelService {
         this.objectMapper = new ObjectMapper();
     }
 
-    // 여행 계획 생성 통합 파이프라인 (트랜잭션 보장)
-    @Transactional
-    public AiRouteResponseDto generateTravelPlan(TravelRequestDto request) {
+    // 1. 일정 생성 요청을 받아 PENDING 상태로 DB에 저장 후 ID 반환
+    public Long requestTravelPlan(TravelRequestDto request) {
         if (isSystemPaused) {
             throw new AiException("시스템이 일시 정지되었습니다.", HttpStatus.SERVICE_UNAVAILABLE);
         }
+        TravelPlan draft = new TravelPlan();
+        draft.setDestination(request.getDestination());
+        draft.setStatus("PENDING");
+        return repository.save(draft).getId();
+    }
+
+    // 2. 백그라운드 스레드에서 AI 통신 및 로직 처리 수행
+    @Async
+    public void processTravelPlanInBackground(Long planId, TravelRequestDto request) {
+        TravelPlan draftPlan = repository.findById(planId).orElse(null);
+        if (draftPlan == null) return;
 
         try {
             String aiResultString = "GEMINI".equals(activeModel) ? callGemini(request) : callChatGPT(request);
@@ -65,19 +75,47 @@ public class AiTravelService {
             enrichWithLocationData(responseDto);
             enrichWithRouteOptimization(responseDto, request.getDestination());
 
-            savePlanToDb(request.getDestination(), aiResultString);
+            // 결과를 JSON 문자열로 변환하여 DB에 COMPLETED 상태로 업데이트
+            String finalJson = objectMapper.writeValueAsString(responseDto);
+            draftPlan.setPlanContent(finalJson);
+            draftPlan.setStatus("COMPLETED");
+            repository.save(draftPlan);
 
-            return responseDto;
         } catch (Exception e) {
-            System.err.println(activeModel + " 호출 실패: " + e.getMessage());
+            System.err.println(activeModel + " 백그라운드 호출 실패: " + e.getMessage());
+            draftPlan.setStatus("FAILED");
+            draftPlan.setPlanContent("장애 발생 사유: " + e.getMessage());
+            repository.save(draftPlan);
+
             handleFailure();
             switchModel();
-            throw new AiException("AI 생성 실패: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
+    // 3. 프론트엔드가 일정 생성 진행 상태를 폴링하기 위한 메서드
+    public PlanStatusResponseDto checkPlanStatus(Long planId) {
+        TravelPlan plan = repository.findById(planId)
+                .orElseThrow(() -> new AiException("일정을 찾을 수 없습니다.", HttpStatus.NOT_FOUND));
+
+        PlanStatusResponseDto statusDto = new PlanStatusResponseDto();
+        statusDto.setPlanId(planId);
+        statusDto.setStatus(plan.getStatus());
+
+        try {
+            if ("COMPLETED".equals(plan.getStatus())) {
+                statusDto.setResult(objectMapper.readValue(plan.getPlanContent(), AiRouteResponseDto.class));
+            } else if ("FAILED".equals(plan.getStatus())) {
+                statusDto.setMessage(plan.getPlanContent());
+            }
+        } catch (Exception e) {
+            statusDto.setStatus("FAILED");
+            statusDto.setMessage("결과 데이터 파싱 오류가 발생했습니다.");
+        }
+
+        return statusDto;
+    }
+
     private String callGemini(TravelRequestDto request) {
-        // 프롬프트 제약 조건 설정 (JSON 출력 강제)
         String systemInstruction = "너는 여행 계획 전문가야. 답변할 때 다음 규칙을 반드시 지켜:\n" +
                 "1. 이모지를 절대 사용하지 마.\n" +
                 "2. 전문적이고 간결한 말투를 유지해.\n" +
@@ -119,13 +157,6 @@ public class AiTravelService {
         throw new RuntimeException("ChatGPT API 장애 발생(테스트)");
     }
 
-    private void savePlanToDb(String destination, String content) {
-        TravelPlan travelPlan = new TravelPlan();
-        travelPlan.setDestination(destination);
-        travelPlan.setPlanContent(content);
-        repository.save(travelPlan);
-    }
-
     private void handleFailure() {
         failureCount++;
         System.err.println("현재 누적 장애 횟수: " + failureCount);
@@ -152,7 +183,6 @@ public class AiTravelService {
         System.out.println("관리자에 의해 시스템이 정상화되었습니다.");
     }
 
-    // AI 텍스트를 DTO 객체로 파싱
     private AiRouteResponseDto parseGeminiResponse(String responseBody) throws Exception {
         JsonNode rootNode = objectMapper.readTree(responseBody);
         String aiText = rootNode.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
@@ -160,7 +190,6 @@ public class AiTravelService {
         return objectMapper.readValue(aiText, AiRouteResponseDto.class);
     }
 
-    // 타임라인 장소의 위경도 주입
     private void enrichWithLocationData(AiRouteResponseDto responseDto) {
         if (responseDto.getTimeline() == null) return;
 
@@ -173,7 +202,6 @@ public class AiTravelService {
         }
     }
 
-    // 경로 및 패스 요금 최적화 데이터 주입
     private void enrichWithRouteOptimization(AiRouteResponseDto responseDto, String cityName) {
         if (responseDto.getTimeline() == null || responseDto.getTimeline().size() < 2) return;
 
